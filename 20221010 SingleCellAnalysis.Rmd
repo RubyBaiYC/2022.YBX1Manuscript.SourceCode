@@ -1,0 +1,976 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+
+setwd("~/Library/CloudStorage/OneDrive-Personal/PostDoc_2022-2023/Project_YBX1/YBX1_Data/20221010_SingleCellAnalysis")
+
+
+library(Seurat)
+library(patchwork)
+library(tidyverse)
+library(msigdbr)
+library(fgsea)
+library(clustifyr)
+library(ComplexHeatmap)
+library(escape)
+library(corrplot)
+library(dittoSeq)
+library(cowplot)
+library(clustree)
+library(rafalib)
+library(scPred)
+library(enrichR)
+library(ggpubr)
+library(GSEABase)
+library(SummarizedExperiment)
+library(SingleR)
+library(ggsci)
+library(magrittr)
+
+GS.hallmark <- getGeneSets(library = 'H')
+
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+```
+
+
+
+
+```{r PMID 29198524}
+
+
+GSE103322 <- read.table("20221010_scRNAseq_29198524/GSE103322_HNSCC_all_data.txt", sep = "\t")
+
+##### Analyze on cancer cells only without normalization -- PI3K Failed ####
+GSE <- data.frame(t(GSE103322))
+#GSE[1,] <- gsub("[ ]",".",GSE[1,])
+
+rownames(GSE) <- GSE[,1]
+GSE <- GSE[,-1]
+colnames(GSE) <- GSE[1,]
+GSE <- GSE[-1,]
+
+GSE <- GSE %>%
+  filter(`classified  as cancer cell` == "1")
+
+GSE.TPM <- GSE[,6:2215] %>%
+  mutate_all(as.numeric)
+#GSE.TPM <- as.matrix(t(GSE.TPM)*1000000)
+GSE.TPM <- as.matrix(t(GSE.TPM))
+GSE.meta <- GSE[,1:5]
+
+
+GSE <- CreateSeuratObject(GSE.TPM, project = "GSE103322", assay = "RNA", names.field = 1, names.delim = "_", meta.data = GSE.meta)
+
+GSE <- CellCycleScoring(GSE, s.features = s.genes, g2m.features = g2m.genes, set.ident = T)
+
+GSE.enrich <- enrichIt(obj = GSE, gene.sets = GS.hallmark, groups = 1000, cores = 4)
+
+GSE <- Seurat::AddMetaData(GSE, GSE.enrich)
+
+multi_dittoPlot(GSE, vars = c("HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION","HALLMARK_PI3K_AKT_MTOR_SIGNALING"), group.by = "Phase",  plots = c("jitter", "boxplot"), ylab = "Enrichment Score", max = 0.4, x.reorder = c(1,3,2), theme = theme_classic() + theme(plot.title = element_text(size = 10)))
+
+comp <- list(c("G1", "S"), c("G1", "G2M"), c("S", "G2M"))
+p1 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", fill = "Phase", palette = "jco", add = "jitter", outlier.shape = NA) +
+  stat_compare_means(method = "kruskal.test") +
+  stat_compare_means(comparisons = comp, method = "wilcox.test")
+#p1 <- ggpar(p1, ylim = c(0,0.45))
+
+
+p2 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_PI3K_AKT_MTOR_SIGNALING", fill = "Phase", palette = "jco", add = "jitter") +
+  stat_compare_means(method = "kruskal.test") + 
+  stat_compare_means(comparisons = comp, method = "wilcox.test") 
+#p2 <- ggpar(p2, ylim = c(0,0.45))
+
+print(p1+p2)
+
+
+# Analyze on cancer cells only
+GSE <- data.frame(t(GSE103322))
+#GSE[1,] <- gsub("[ ]",".",GSE[1,])
+
+rownames(GSE) <- GSE[,1]
+GSE <- GSE[,-1]
+colnames(GSE) <- GSE[1,]
+GSE <- GSE[-1,]
+
+GSE <- GSE %>%
+  filter(`classified  as cancer cell` == "1")
+
+GSE.TPM <- GSE[,6:2215] %>%
+  mutate_all(as.numeric)
+#GSE.TPM <- as.matrix(t(GSE.TPM)*1000000)
+GSE.TPM <- as.matrix(t(GSE.TPM))
+GSE.meta <- GSE[,1:5]
+
+
+GSE <- CreateSeuratObject(GSE.TPM, project = "GSE103322", assay = "RNA", names.field = 1, names.delim = "_", meta.data = GSE.meta)
+
+GSE <- NormalizeData(GSE)
+GSE <- FindVariableFeatures(GSE, selection.method = "vst")
+GSE <- ScaleData(GSE)
+GSE <-RunPCA(GSE, npcs = 50)
+GSE <- RunUMAP(GSE, dims = 1:50)
+GSE <- FindNeighbors(GSE, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+
+GSE <- CellCycleScoring(GSE, s.features = s.genes, g2m.features = g2m.genes, set.ident = T)
+
+GSE.enrich <- enrichIt(obj = GSE, gene.sets = GS.hallmark, groups = 1000, cores = 4)
+
+GSE <- Seurat::AddMetaData(GSE, GSE.enrich)
+
+multi_dittoPlot(GSE, vars = c("HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION","HALLMARK_PI3K_AKT_MTOR_SIGNALING"), group.by = "Phase",  plots = c("jitter", "boxplot"), ylab = "Enrichment Score", max = 0.4, x.reorder = c(1,3,2), theme = theme_classic() + theme(plot.title = element_text(size = 10)))
+
+comp <- list(c("G1", "S"), c("G1", "G2M"), c("S", "G2M"))
+p1 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", fill = "Phase", palette = "jco", add = "jitter", outlier.shape = NA) +
+  stat_compare_means(method = "kruskal.test") +
+  stat_compare_means(comparisons = comp, method = "wilcox.test")
+#p1 <- ggpar(p1, ylim = c(0,0.45))
+
+
+p2 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_PI3K_AKT_MTOR_SIGNALING", fill = "Phase", palette = "jco", add = "jitter") +
+  stat_compare_means(method = "kruskal.test") + 
+  stat_compare_means(comparisons = comp, method = "wilcox.test") 
+#p2 <- ggpar(p2, ylim = c(0,0.45))
+
+print(p1+p2)
+
+pdf("20221010_scRNAseq_29198524/GSE103322_EMTvsPhase.pdf", width = 12, height = 6)
+print(p1+p2)
+dev.off
+
+
+
+################## Starting analysis from full population -- EMT Failed ########
+GSE <- data.frame(t(GSE103322))
+#GSE[1,] <- gsub("[ ]",".",GSE[1,])
+
+rownames(GSE) <- GSE[,1]
+GSE <- GSE[,-1]
+colnames(GSE) <- GSE[1,]
+GSE <- GSE[-1,]
+
+#GSE <- GSE %>%
+#  filter(`classified  as cancer cell` == "1")
+
+GSE.TPM <- GSE[,6:23691] %>%
+  mutate_all(as.numeric)
+#GSE.TPM <- as.matrix(t(GSE.TPM)*1000000)
+GSE.TPM <- as.matrix(t(GSE.TPM))
+GSE.meta <- GSE[,1:5]
+
+
+GSE <- CreateSeuratObject(GSE.TPM, project = "GSE103322", assay = "RNA", names.field = 1, names.delim = "_", meta.data = GSE.meta)
+
+GSE <- NormalizeData(GSE)
+GSE <- FindVariableFeatures(GSE, selection.method = "vst")
+GSE <- ScaleData(GSE)
+GSE <- RunPCA(GSE, npcs = 50)
+GSE <- RunUMAP(GSE, dims = 1:50)
+GSE <- FindNeighbors(GSE, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+
+GSE <- CellCycleScoring(GSE, s.features = s.genes, g2m.features = g2m.genes, set.ident = T)
+
+
+CancerCells <- WhichCells(GSE, expression = classified..as.cancer.cell == "1")
+GSE <- subset(GSE, cells = CancerCells)
+
+GSE <- NormalizeData(GSE)
+GSE <- FindVariableFeatures(GSE, selection.method = "vst")
+GSE <- ScaleData(GSE)
+GSE <- RunPCA(GSE, npcs = 50)
+GSE <- RunUMAP(GSE, dims = 1:50)
+GSE <- FindNeighbors(GSE, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+
+
+GSE.enrich <- enrichIt(obj = GSE, gene.sets = GS.hallmark, groups = 1000, cores = 4)
+
+GSE <- Seurat::AddMetaData(GSE, GSE.enrich)
+
+multi_dittoPlot(GSE, vars = c("HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION","HALLMARK_PI3K_AKT_MTOR_SIGNALING"), group.by = "Phase",  plots = c("jitter", "boxplot"), ylab = "Enrichment Score", max = 0.4, x.reorder = c(1,3,2), theme = theme_classic() + theme(plot.title = element_text(size = 10)))
+
+comp <- list(c("G1", "S"), c("G1", "G2M"), c("S", "G2M"))
+p1 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", fill = "Phase", palette = "jco", add = "jitter", outlier.shape = NA) +
+  stat_compare_means(method = "kruskal.test") +
+  stat_compare_means(comparisons = comp, method = "wilcox.test")
+p1 <- ggpar(p1, ylim = c(0,0.45))
+
+
+p2 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_PI3K_AKT_MTOR_SIGNALING", fill = "Phase", palette = "jco", add = "jitter") +
+  stat_compare_means(method = "kruskal.test") + 
+  stat_compare_means(comparisons = comp, method = "wilcox.test") 
+p2 <- ggpar(p2, ylim = c(0,0.45))
+
+print(p1+p2)
+
+pdf("20221010_scRNAseq_29198524/GSE103322_PI3KvsPhase.pdf", width = 12, height = 6)
+print(p1+p2)
+dev.off
+
+
+################## Starting analysis from full population with filtration -- failed ########
+GSE <- data.frame(t(GSE103322))
+#GSE[1,] <- gsub("[ ]",".",GSE[1,])
+
+rownames(GSE) <- GSE[,1]
+GSE <- GSE[,-1]
+colnames(GSE) <- GSE[1,]
+GSE <- GSE[-1,]
+
+#GSE <- GSE %>%
+#  filter(`classified  as cancer cell` == "1")
+
+GSE.TPM <- GSE[,6:2215] %>%
+  mutate_all(as.numeric)
+#GSE.TPM <- as.matrix(t(GSE.TPM)*1000000)
+GSE.TPM <- as.matrix(t(GSE.TPM))
+GSE.meta <- GSE[,1:5]
+
+
+GSE <- CreateSeuratObject(GSE.TPM, project = "GSE103322", assay = "RNA", names.field = 1, names.delim = "_", meta.data = GSE.meta)
+GSE <- PercentageFeatureSet(GSE, "^MT-", col.name = "percent_mito")
+GSE <- PercentageFeatureSet(GSE, "^RP[SL]", col.name="percent_ribo")
+GSE <- PercentageFeatureSet(GSE, "^HB[^(P)]", col.name = "percent_hb")
+GSE <- PercentageFeatureSet(GSE, "PECAM1|PF4", col.name = "percent_plat")
+
+feats <- c("nFeature_RNA", "nCount_RNA","percent_mito", "percent_ribo", "percent_hb")
+print(VlnPlot(GSE, features = feats, pt.size = 0.1, ncol = 3) + NoLegend())
+selected_c <- WhichCells(GSE, expression = nFeature_RNA > 200)
+selected_f <- rownames(GSE)[Matrix::rowSums(GSE) > 2]
+GSE <- subset(GSE, features = selected_f, cells = selected_c)
+selected_ribo <- WhichCells(GSE, expression = percent_ribo > 5)
+GSE <- subset(GSE, cells = selected_ribo)
+
+GSE <- GSE[!grepl("^MT-", rownames(GSE)), ]
+GSE <- GSE[!grepl('^RP[SL]', rownames(GSE)), ]
+GSE <- GSE[!grepl("^HB[^(P)]", rownames(GSE)), ]
+
+GSE <- NormalizeData(GSE)
+GSE <- FindVariableFeatures(GSE, selection.method = "vst")
+GSE <- ScaleData(GSE)
+GSE <-RunPCA(GSE, npcs = 50)
+GSE <- RunUMAP(GSE, dims = 1:50)
+GSE <- FindNeighbors(GSE, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+
+GSE <- CellCycleScoring(GSE, s.features = s.genes, g2m.features = g2m.genes, set.ident = T)
+
+
+CancerCells <- WhichCells(GSE, expression = classified..as.cancer.cell == "1")
+GSE <- subset(GSE, cells = CancerCells)
+
+GSE <- NormalizeData(GSE)
+GSE <- FindVariableFeatures(GSE, selection.method = "vst")
+GSE <- ScaleData(GSE)
+GSE <-RunPCA(GSE, npcs = 50)
+GSE <- RunUMAP(GSE, dims = 1:50)
+GSE <- FindNeighbors(GSE, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+
+
+GSE.enrich <- enrichIt(obj = GSE, gene.sets = GS.hallmark, groups = 1000, cores = 4)
+
+GSE <- Seurat::AddMetaData(GSE, GSE.enrich)
+
+multi_dittoPlot(GSE, vars = c("HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION","HALLMARK_PI3K_AKT_MTOR_SIGNALING"), group.by = "Phase",  plots = c("jitter", "boxplot"), ylab = "Enrichment Score", max = 0.4, x.reorder = c(1,3,2), theme = theme_classic() + theme(plot.title = element_text(size = 10)))
+
+comp <- list(c("G1", "S"), c("G1", "G2M"), c("S", "G2M"))
+p1 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", fill = "Phase", palette = "jco", add = "jitter", outlier.shape = NA) +
+  stat_compare_means(method = "kruskal.test") +
+  stat_compare_means(comparisons = comp, method = "wilcox.test")
+p1 <- ggpar(p1, ylim = c(0,0.45))
+
+
+p2 <- ggboxplot(GSE@meta.data, x= "Phase", y = "HALLMARK_PI3K_AKT_MTOR_SIGNALING", fill = "Phase", palette = "jco", add = "jitter") +
+  stat_compare_means(method = "kruskal.test") + 
+  stat_compare_means(comparisons = comp, method = "wilcox.test") 
+p2 <- ggpar(p2, ylim = c(0,0.45))
+
+print(p1+p2)
+
+
+
+
+```
+
+
+
+```{r PMID 29198524_2}
+
+GSE103322 <- read.table("20221010_scRNAseq_29198524/GSE103322_HNSCC_all_data.txt", sep = "\t")
+
+
+
+```
+
+```{r Example}
+PT1980E.data <-Read10X_h5("/Users/baiyuchen/Desktop/YB1 Manuscript/Data/YB1_TCGA_Analysis/YB1_TCGA_Analysis_Firehorse/YB1_GEO_Analysis/Input/Single-RNAseq/GSE140042/GSM4151980_cellranger_36-plex_7239_E_filtered_feature_bc_matrix.h5") 
+PT1980E <- CreateSeuratObject(counts = PT1980E.data, project = "PT1980E", min.cells = 0, min.features = 0)
+PT1980E$type = "PT"
+
+MT1982E.data <-Read10X_h5("/Users/baiyuchen/Desktop/YB1 Manuscript/Data/YB1_TCGA_Analysis/YB1_TCGA_Analysis_Firehorse/YB1_GEO_Analysis/Input/Single-RNAseq/GSE140042/GSM4151982_cellranger_36-plex_7239B_E_filtered_feature_bc_matrix.h5") 
+MT1982E <- CreateSeuratObject(counts = MT1982E.data, project = "MT1982E", min.cells = 0, min.features = 0)
+MT1982E$type = "MT"
+
+mergeddata <- merge(PT1980E, MT1982E, add.cell.ids = c("PT1980E", "MT1982E"))
+mergeddata <- PercentageFeatureSet(mergeddata, "^MT-",col.name = "percent_mito")
+mergeddata <- PercentageFeatureSet(mergeddata,"^RP[SL]", col.name="percent_ribo")
+mergeddata <- PercentageFeatureSet(mergeddata,"^HB[^(P)]", col.name = "percent_hb")
+mergeddata <- PercentageFeatureSet(mergeddata,"PECAM1|PF4", col.name = "percent_plat")
+
+feats <- c("nFeature_RNA", "nCount_RNA", "percent_mito", "percent_ribo", "percent_hb")
+print(VlnPlot(mergeddata, group.by = "orig.ident", features = feats, pt.size = 0.1, ncol = 3) + NoLegend())
+selected_c <- WhichCells(mergeddata, expression = nFeature_RNA > 200)
+selected_f <- rownames(mergeddata)[Matrix::rowSums(mergeddata) > 2]
+data.filt <- subset(mergeddata, features = selected_f, cells = selected_c)
+
+data.filt <- data.filt[!grepl("^MT-", rownames(data.filt)), ]
+data.filt <- data.filt[!grepl('^RP[SL]', rownames(data.filt)), ]
+data.filt <- data.filt[!grepl("^HB[^(P)]", rownames(data.filt)), ]
+data.filt <- data.filt[!grepl("MALAT1", rownames(data.filt)), ]
+
+selected_mito <- WhichCells(data.filt, expression = percent_mito < 20)
+selected_ribo <- WhichCells(data.filt, expression = percent_ribo > 5)
+data.filt <- subset(data.filt, cells = selected_mito)
+data.filt <- subset(data.filt, cells = selected_ribo)
+data.filt = NormalizeData(data.filt)
+```
+
+
+```{r PMID 34921143}
+
+HN01.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017023_HN01_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017023_HN01_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017023_HN01_CD45n_barcodes.tsv.gz")
+HN01.CD45n <- CreateSeuratObject(counts = HN01.CD45n, project = "HN01")
+
+
+HN05.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017032_HN05_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017032_HN05_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017032_HN05_CD45n_barcodes.tsv.gz")
+HN05.CD45n <- CreateSeuratObject(counts = HN05.CD45n, project = "HN05")
+
+
+HN06.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017035_HN06_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017035_HN06_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017035_HN06_CD45n_barcodes.tsv.gz")
+HN06.CD45n <- CreateSeuratObject(counts = HN06.CD45n, project = "HN06")
+
+
+HN07.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017038_HN07_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017038_HN07_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017038_HN07_CD45n_barcodes.tsv.gz")
+HN07.CD45n <- CreateSeuratObject(counts = HN07.CD45n, project = "HN07")
+
+
+HN08.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017041_HN08_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017041_HN08_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017041_HN08_CD45n_barcodes.tsv.gz")
+HN08.CD45n <- CreateSeuratObject(counts = HN08.CD45n, project = "HN08")
+
+
+HN09.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017044_HN09_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017044_HN09_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017044_HN09_CD45n_barcodes.tsv.gz")
+HN09.CD45n <- CreateSeuratObject(counts = HN09.CD45n, project = "HN09")
+
+
+HN10.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017047_HN10_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017047_HN10_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017047_HN10_CD45n_barcodes.tsv.gz")
+HN10.CD45n <- CreateSeuratObject(counts = HN10.CD45n, project = "HN10")
+
+
+HN11.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017050_HN11_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017050_HN11_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017050_HN11_CD45n_barcodes.tsv.gz")
+HN11.CD45n <- CreateSeuratObject(counts = HN11.CD45n, project = "HN11")
+
+
+HN12.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017053_HN12_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017053_HN12_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017053_HN12_CD45n_barcodes.tsv.gz")
+HN12.CD45n <- CreateSeuratObject(counts = HN12.CD45n, project = "HN12")
+
+
+HN13.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017056_HN13_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017056_HN13_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017056_HN13_CD45n_barcodes.tsv.gz")
+HN13.CD45n <- CreateSeuratObject(counts = HN13.CD45n, project = "HN13")
+
+
+
+HN14.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017059_HN14_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017059_HN14_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017059_HN14_CD45n_barcodes.tsv.gz")
+HN14.CD45n <- CreateSeuratObject(counts = HN14.CD45n, project = "HN14")
+
+
+HN15.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017062_HN15_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017062_HN15_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017062_HN15_CD45n_barcodes.tsv.gz")
+HN15.CD45n <- CreateSeuratObject(counts = HN15.CD45n, project = "HN15")
+
+
+HN16.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017065_HN16_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017065_HN16_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017065_HN16_CD45n_barcodes.tsv.gz")
+HN16.CD45n <- CreateSeuratObject(counts = HN16.CD45n, project = "HN16")
+
+
+
+HN17.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017068_HN17_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017068_HN17_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017068_HN17_CD45n_barcodes.tsv.gz")
+HN17.CD45n <- CreateSeuratObject(counts = HN17.CD45n, project = "HN17")
+
+
+
+HN18.CD45n <- ReadMtx(
+  mtx = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017071_HN18_CD45n_matrix.mtx.gz",
+  features = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017071_HN18_CD45n_features.tsv.gz",
+  cells = "20221010_scRNAseq_34921143/GSE164690_RAW/GSM5017071_HN18_CD45n_barcodes.tsv.gz")
+HN18.CD45n <- CreateSeuratObject(counts = HN18.CD45n, project = "HN18")
+
+
+mergeddata <- merge(HN01.CD45n,c(HN05.CD45n,HN06.CD45n,HN07.CD45n,HN08.CD45n,HN09.CD45n,HN10.CD45n,HN11.CD45n,HN12.CD45n,HN13.CD45n,HN14.CD45n,HN15.CD45n,HN16.CD45n,HN17.CD45n,HN18.CD45n), add.cell.ids = c("HN01", "HN05", "HN06", "HN07", "HN08", "HN09", "HN10", "HN11", "HN12", "HN13", "HN14", "HN15", "HN16", "HN17", "HN18"))
+
+remove(HN01.CD45n,HN05.CD45n,HN06.CD45n,HN07.CD45n,HN08.CD45n,HN09.CD45n,HN10.CD45n,HN11.CD45n,HN12.CD45n,HN13.CD45n,HN14.CD45n,HN15.CD45n,HN16.CD45n,HN17.CD45n,HN18.CD45n)
+gc()
+table(mergeddata$orig.ident)
+dim(mergeddata)
+
+mergeddata <- PercentageFeatureSet(mergeddata, "^MT-",col.name = "percent_mito")
+mergeddata <- PercentageFeatureSet(mergeddata,"^RP[SL]", col.name="percent_ribo")
+mergeddata <- PercentageFeatureSet(mergeddata,"^HB[^(P)]", col.name = "percent_hb")
+mergeddata <- PercentageFeatureSet(mergeddata,"PECAM1|PF4", col.name = "percent_plat")
+
+feats <- c("nFeature_RNA", "nCount_RNA", "percent_mito", "percent_ribo", "percent_hb")
+print(VlnPlot(mergeddata, group.by = "orig.ident", features = feats, pt.size = 0.1, ncol = 3) + NoLegend())
+
+#feats <- c("nFeature_RNA")
+#print(VlnPlot(mergeddata, group.by = "orig.ident", features = feats, pt.size = 0.1, y.max = 500) + NoLegend())
+selected_c <- WhichCells(mergeddata, expression = nFeature_RNA > 200)
+selected_f <- rownames(mergeddata)[Matrix::rowSums(mergeddata) > 2]
+data.filt <- subset(mergeddata, features = selected_f, cells = selected_c)
+rm(mergeddata)
+gc()
+
+par(mar = c(4, 8, 2, 1))
+C <- data.filt@assays$RNA@counts
+C <- Matrix::t(Matrix::t(C)/Matrix::colSums(C)) * 100
+most_expressed <- order(apply(C, 1, median), decreasing = T)[20:1]
+boxplot(as.matrix(Matrix::t(C[most_expressed, ])), cex = 0.1, las = 1, xlab = "% total count per cell", col = (scales::hue_pal())(20)[20:1], horizontal = TRUE)
+
+data.filt <- data.filt[!grepl("^MT-", rownames(data.filt)), ]
+data.filt <- data.filt[!grepl('^RP[SL]', rownames(data.filt)), ]
+data.filt <- data.filt[!grepl("^HB[^(P)]", rownames(data.filt)), ]
+data.filt <- data.filt[!grepl("MALAT1", rownames(data.filt)), ]
+
+
+#feats <- c("percent_mito", "percent_ribo")
+#print(VlnPlot(data.filt, group.by = "orig.ident", features = feats, pt.size = 0.1, ncol = 2, y.max = 25) + NoLegend())
+
+
+selected_mito <- WhichCells(data.filt, expression = percent_mito < 15)
+selected_ribo <- WhichCells(data.filt, expression = percent_ribo > 10)
+data.filt <- subset(data.filt, cells = selected_mito)
+data.filt <- subset(data.filt, cells = selected_ribo)
+
+table(data.filt$orig.ident)
+dim(data.filt)
+
+data.filt = NormalizeData(data.filt)
+data.filt <- CellCycleScoring(object = data.filt, g2m.features = g2m.genes, s.features = s.genes)
+VlnPlot(data.filt, features = c("S.Score", "G2M.Score"), group.by = "orig.ident", ncol = 2, pt.size = 0.1)
+data.filt$CC.diff <- data.filt$S.Score-data.filt$G2M.Score
+
+
+suppressMessages(require(DoubletFinder))
+data.filt = FindVariableFeatures(data.filt, verbose = F)
+data.filt = ScaleData(data.filt, vars.to.regress = c("nFeature_RNA", "percent_mito"), verbose = F)
+data.filt = RunPCA(data.filt, verbose = F, npcs = 20)
+data.filt = RunUMAP(data.filt, dims = 1:20, verbose = F)
+
+sweep.res <- paramSweep_v3(data.filt)
+sweep.stats <- summarizeSweep(sweep.res, GT = FALSE)
+bcmvn <- find.pK(sweep.stats)
+barplot(bcmvn$BCmetric, names.arg = bcmvn$pK, las=2)
+nExp <- round(ncol(data.filt) * 0.025)
+data.filt <- doubletFinder_v3(data.filt, pN = 0.25, pK = 0.06, nExp = nExp, PCs = 1:10)
+DF.name = colnames(data.filt@meta.data)[grepl("DF.classification", colnames(data.filt@meta.data))]
+cowplot::plot_grid(ncol = 2, DimPlot(data.filt, group.by = "orig.ident") + NoAxes(), DimPlot(data.filt, group.by = DF.name) + NoAxes())
+VlnPlot(data.filt, features = "nFeature_RNA", group.by = DF.name, pt.size = 0.1)
+data.filt = data.filt[, data.filt@meta.data[, DF.name] == "Singlet"]
+dim(data.filt)
+
+rm (bcmvn, C, sweep.res, sweep.stats, DF.name, feats, nExp, selected_c, selected_f, selected_mito, selected_ribo)
+```
+```{r}
+data.filt <- FindVariableFeatures(data.filt, selection.method = "vst", nfeatures = 2000, verbose = FALSE, assay = "RNA")
+top20 <- head(VariableFeatures(data.filt), 20)
+LabelPoints(plot = VariableFeaturePlot(data.filt), points = top20, repel = TRUE)
+data.scale <- ScaleData(data.filt, vars.to.regress = c("percent_mito", "nFeature_RNA"), assay = "RNA")
+
+remove(data.filt)
+gc()
+
+data.scale <- RunPCA(data.scale, npcs = 50, verbose = F)
+plot_grid(ncol = 3, DimPlot(data.scale, reduction = "pca", group.by = "orig.ident", dims = 1:2), DimPlot(data.scale, reduction = "pca", group.by = "orig.ident", dims = 3:4), DimPlot(data.scale, reduction = "pca", group.by = "orig.ident", dims = 5:6))
+VizDimLoadings(data.scale, dims = 1:5, reduction = "pca", ncol = 5, balanced = T)
+ElbowPlot(data.scale, reduction = "pca", ndims = 50)
+data.scale <- RunTSNE(data.scale, reduction = "pca", dims = 1:50, perplexity = 30, max_iter = 1000, theta = 0.5, eta = 200, num_threads = 0)
+plot_grid(ncol = 1, DimPlot(data.scale, reduction = "tsne", group.by = "orig.ident"))
+data.scale <- RunUMAP(data.scale, reduction = "pca", dims = 1:50, n.components = 2, n.neighbors = 30, n.epochs = 200, min.dist = 0.3, learning.rate = 1, spread = 1)
+print(plot_grid(ncol = 3, DimPlot(data.scale, reduction = "pca", group.by = "orig.ident"), DimPlot(data.scale, reduction = "tsne", group.by = "orig.ident"), DimPlot(data.scale,reduction = "umap", group.by = "orig.ident")))
+plot_grid(ncol = 1, DimPlot(data.scale,reduction = "umap", group.by = "orig.ident"))
+
+data.scale <- FindNeighbors(data.scale, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+names(data.scale@graphs)
+pheatmap(as.matrix(data.scale@graphs$RNA_snn[1:200, 1:200]), col = c("white", "black"), border_color = "grey90",
+    legend = F, cluster_rows = F, cluster_cols = F, fontsize = 2)
+for (res in c(0.1, 0.25, 0.5, 1, 1.5, 2)) {
+    data.scale <- FindClusters(data.scale, graph.name = "RNA_snn", resolution = res, algorithm = 1)
+}
+plot_grid(ncol = 3, DimPlot(data.scale, reduction = "umap", group.by = "RNA_snn_res.0.5") +
+    ggtitle("louvain_0.5"), DimPlot(data.scale, reduction = "umap", group.by = "RNA_snn_res.1") +
+    ggtitle("louvain_1"), DimPlot(data.scale, reduction = "umap", group.by = "RNA_snn_res.2") +
+    ggtitle("louvain_2"))
+
+clustree(data.scale@meta.data, prefix = "RNA_snn_res.")
+
+sel.clust = "RNA_snn_res.0.1"
+data.scale <- SetIdent(data.scale, value = sel.clust)
+table(data.scale@active.ident)
+print(plot_grid(ncol = 2, DimPlot(data.scale, label = T) + NoAxes(), DimPlot(data.scale, group.by = "orig.ident") + NoAxes()))
+
+```
+
+
+```{r}
+alldata.list <- SplitObject(data.scale, split.by = "orig.ident")
+for (i in 1:length(alldata.list)) {
+    alldata.list[[i]] <- NormalizeData(alldata.list[[i]], verbose = FALSE)
+    alldata.list[[i]] <- FindVariableFeatures(alldata.list[[i]], selection.method = "vst",
+        nfeatures = 2000, verbose = FALSE)
+}
+
+hvgs_per_dataset <- lapply(alldata.list, function(x) {
+    x@assays$RNA@var.features
+})
+temp <- unique(unlist(hvgs_per_dataset))
+overlap <- sapply(hvgs_per_dataset, function(x) {
+    temp %in% x
+})
+pheatmap::pheatmap(t(overlap * 1), cluster_rows = F, color = c("grey90", "grey20"))
+
+alldata.anchors <- FindIntegrationAnchors(object.list = alldata.list, dims = 1:50)
+alldata.int <- IntegrateData(anchorset = alldata.anchors, dims = 1:50)
+
+alldata.int <- ScaleData(alldata.int, verbose = FALSE)
+alldata.int <- RunPCA(alldata.int, npcs = 50, verbose = FALSE)
+alldata.int <- RunUMAP(alldata.int, dims = 1:50)
+print(plot_grid(ncol = 2, DimPlot(alldata.int, label = T) + NoAxes(), DimPlot(alldata.int, group.by = "orig.ident") + NoAxes()))
+
+alldata.int@active.assay
+dim(alldata.int)
+rm(alldata.anchors,alldata.list, data.scale)
+gc()
+
+
+alldata.int <- FindNeighbors(alldata.int, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+
+names(alldata.int@graphs)
+pheatmap(as.matrix(alldata.int@graphs$integrated_nn[1:200, 1:200]), col = c("white", "black"), border_color = "grey90",
+    legend = F, cluster_rows = F, cluster_cols = F, fontsize = 2)
+
+for (res in c(0.1, 0.25, 0.5, 1, 1.5, 2)) {
+    alldata.int <- FindClusters(alldata.int, graph.name = "integrated_snn", resolution = res, algorithm = 1)
+}
+
+plot_grid(ncol = 3, DimPlot(alldata.int, reduction = "umap", group.by = "integrated_snn_res.0.5") +
+    ggtitle("louvain_0.5"), DimPlot(alldata.int, reduction = "umap", group.by = "integrated_snn_res.1") +
+    ggtitle("louvain_1"), DimPlot(alldata.int, reduction = "umap", group.by = "integrated_snn_res.2") +
+    ggtitle("louvain_2"))
+
+clustree(alldata.int@meta.data, prefix = "integrated_snn_res.")
+
+plot_grid(ncol = 1, DimPlot(alldata.int, reduction = "umap", group.by = "integrated_snn_res.0.1") +
+    ggtitle("louvain_0.1"))
+sel.clust = "integrated_snn_res.0.1"
+
+alldata.int <- SetIdent(alldata.int, value = sel.clust)
+print(plot_grid(ncol = 3, DimPlot(alldata.int, label = T) + NoAxes(), DimPlot(alldata.int, group.by = "orig.ident") +
+    NoAxes()))
+
+
+```
+
+
+```{r}
+reference <- scPred::pbmc_1
+reference <- reference %>%
+    NormalizeData() %>%
+    FindVariableFeatures() %>%
+    ScaleData() %>%
+    RunPCA(verbose = F) %>%
+    RunUMAP(dims = 1:50)
+
+reference <- getFeatureSpace(reference, "cell_type")
+reference <- trainModel(reference)
+get_scpred(reference) 
+alldata.int <- scPredict(alldata.int, reference)
+DimPlot(alldata.int, group.by = "scpred_prediction", label = T, repel = T) + NoAxes()
+
+
+markers <- read.delim("20221010_scRNAseq_34921143/CellMarker_list/Human_cell_markers.txt")
+markers <- markers[markers$speciesType == "Human", ]
+markers <- markers[markers$cancerType == "Normal", ]
+celltype_list <- lapply(unique(markers$cellName), function(x) {
+    x <- paste(markers$geneSymbol[markers$cellName == x], sep = ",")
+    x <- gsub("[[]|[]]| |-", ",", x)
+    x <- unlist(strsplit(x, split = ","))
+    x <- unique(x[!x %in% c("", "NA", "family")])
+    x <- casefold(x, upper = T)
+})
+names(celltype_list) <- unique(markers$cellName)
+celltype_list <- celltype_list[unlist(lapply(celltype_list, length)) < 100]
+celltype_list <- celltype_list[unlist(lapply(celltype_list, length)) > 5]
+
+alldata.int <- SetIdent(alldata.int, value = sel.clust)
+DGE_table <- FindAllMarkers(alldata.int, logfc.threshold = 0, test.use = "wilcox", min.pct = 0.1,
+    min.diff.pct = 0, only.pos = TRUE, max.cells.per.ident = 20, return.thresh = 1,
+    assay = "RNA")
+DGE_list <- split(DGE_table, DGE_table$cluster)
+unlist(lapply(DGE_list, nrow))
+res <- lapply(DGE_list, function(x) {
+    gene_rank <- setNames(x$avg_log2FC, x$gene)
+    fgseaRes <- fgsea(pathways = celltype_list, stats = gene_rank, nperm = 10000)
+    return(fgseaRes)
+})
+names(res) <- names(DGE_list)
+res <- lapply(res, function(x) {
+    x[x$pval < 0.01, ]
+})
+res <- lapply(res, function(x) {
+    x[x$size > 5, ]
+})
+res <- lapply(res, function(x) {
+    x[order(x$NES, decreasing = T), ]
+})
+
+
+lapply(res, head, 5)
+
+new.cluster.ids <- c(`0`="Keratinocyte", `1`="Adipocyte", `2`="Fibroblast", `3`="CD4 T cell", `4`="Endothelial Cells", `5`="NK cell", `6`="Keratinocyte", `7`="DC", `8`="Plasma cell", `9`="Macrophage")
+
+CellMarker <- c()
+for (i in 1:36269){
+  a <- as.numeric(alldata.int@meta.data$integrated_snn_res.0.1[i])
+  CellMarker <- c(CellMarker, new.cluster.ids[a])
+}
+alldata.int$CellMarker <- CellMarker
+
+scPredictMarker <- alldata.int@meta.data$scpred_prediction
+
+Final <- c()
+for (i in 1:36269) {
+  if (scPredictMarker[i] == "unassigned"){
+    Final <- c(Final, CellMarker[i])} 
+  else if (scPredictMarker[i] == "cMono"){
+    Final <- c(Final,"Monocyte")} 
+  else if (scPredictMarker[i] == "ncMono"){
+    Final <- c(Final,"Monocyte")}
+  else if (scPredictMarker[i] == "cDC"){
+    Final <- c(Final,"DC")} 
+  else if (scPredictMarker[i] == "pDC"){
+    Final <- c(Final,"DC")}
+  else if (scPredictMarker[i] == "B cell"){
+    Final <- c(Final,"Plasma cell")}
+  else {Final <- c(Final, scPredictMarker[i])}
+}
+
+alldata.int$CellType <- Final
+
+print(plot_grid(ncol = 2, 
+                DimPlot(alldata.int, label = T, label.size = 3) + NoAxes() +NoLegend(), 
+                DimPlot(alldata.int, group.by = "orig.ident") + NoAxes() + NoLegend(), 
+                DimPlot(alldata.int, group.by = "CellType", label = T, repel = T, label.size = 2) + NoAxes()+ NoLegend()))
+```
+```{r}
+Epi <- WhichCells(alldata.int, expression = CellType  == "Keratinocyte")
+Epi <- subset(alldata.int, cells = Epi)
+#Epi <- subset(alldata.int, idents = 9)
+Epi@active.assay
+Epi <- SetIdent(Epi, value = sel.clust)
+
+Epi <- ScaleData(Epi, verbose = FALSE)
+Epi <- RunPCA(Epi, npcs = 50, verbose = FALSE)
+Epi <- RunUMAP(Epi, dims = 1:50)
+Epi <- FindNeighbors(Epi, dims = 1:50, k.param = 60, prune.SNN = 1/15)
+for (res in c(0.1, 0.25, 0.5, 1, 1.5, 2)) {
+    Epi <- FindClusters(Epi, graph.name = "integrated_snn", resolution = res, algorithm = 1)
+}
+plot_grid(ncol = 3, DimPlot(Epi, reduction = "umap", group.by = "integrated_snn_res.0.5") +
+    ggtitle("louvain_0.5"), DimPlot(Epi, reduction = "umap", group.by = "integrated_snn_res.1") +
+    ggtitle("louvain_1"), DimPlot(Epi, reduction = "umap", group.by = "integrated_snn_res.2") +
+    ggtitle("louvain_2"))
+clustree(Epi@meta.data, prefix = "integrated_snn_res.")
+
+
+sel.clust = "integrated_snn_res.0.25"
+Epi <- SetIdent(Epi, value = sel.clust)
+table(Epi@active.ident)
+
+Epi@active.assay
+
+Epi.enrich <- enrichIt(obj = Epi, gene.sets = GS.hallmark, groups = 1000, cores = 4)
+Epi <- Seurat::AddMetaData(Epi, Epi.enrich)
+output <- getSignificance(Epi@meta.data, group = "Phase", fit = "linear.model")
+
+RidgePlot(Epi, features = c("HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION","HALLMARK_PI3K_AKT_MTOR_SIGNALING"), group.by = "Phase")
+ridgeEnrichment(Epi@meta.data, gene.set = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", group = "Phase", add.rug = T)
+
+multi_dittoPlot(Epi, vars = c("HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION","HALLMARK_PI3K_AKT_MTOR_SIGNALING"), group.by = "Phase",  plots = c("jitter", "boxplot"), ylab = "Enrichment Score", max = 0.4, x.reorder = c(1,3,2), theme = theme_classic() + theme(plot.title = element_text(size = 10)))
+
+Epi@meta.data$Phase <- factor(Epi@meta.data$Phase, levels = c("G1","G2M", "S"))
+comp <- list(c("G1", "S"), c("G1", "G2M"), c("S", "G2M"))
+p1 <- ggboxplot(Epi@meta.data, x= "Phase", y = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", fill = "Phase", palette = "jco", add = "jitter", outlier.shape = NA) +
+  stat_compare_means(method = "kruskal.test") +
+  stat_compare_means(comparisons = comp, method = "wilcox.test")
+#p1 <- ggpar(p1, ylim = c(0,0.45))
+
+
+p2 <- ggboxplot(Epi@meta.data, x= "Phase", y = "HALLMARK_PI3K_AKT_MTOR_SIGNALING", fill = "Phase", palette = "jco", add = "jitter") +
+  stat_compare_means(method = "kruskal.test") + 
+  stat_compare_means(comparisons = comp, method = "wilcox.test") 
+#p2 <- ggpar(p2, ylim = c(0,0.45))
+
+pdf("20221010_scRNAseq_34921143/34921143_EnrichGMscore.pdf", width = 12, height = 6)
+print(p1+p2)
+dev.off()
+```
+
+
+
+```{r}
+pEMT.Marker <- c(
+  'SERPINE1',
+'TGFBI',
+'MMP10',
+'LAMC2',
+'P4HA2',
+'PDPN',
+'ITGA5',
+'LAMA3',
+'CDH13',
+'TNC',
+'MMP2',
+'EMP3',
+'INHBA',
+'LAMB3',
+'VIM',
+'SEMA3C',
+'PRKCDBP',
+'ANXA5',
+'DHRS7',
+'ITGB1',
+'ACTN1',
+'CXCR7',
+'ITGB6',
+'IGFBP7',
+'THBS1',
+'PTHLH',
+'TNFRSF6B',
+'PDLIM7',
+'CAV1',
+'DKK3',
+'COL17A1',
+'LTBP1',
+'COL5A2',
+'COL1A1',
+'FHL2',
+'TIMP3',
+'PLAU',
+'LGALS1',
+'PSMD2',
+'CD63',
+'HERPUD1',
+'TPM1',
+'SLC39A14',
+'C1S',
+'MMP1',
+'EXT2',
+'COL4A2',
+'PRSS23',
+'SLC7A8',
+'SLC31A2',
+'ARPC1B',
+'APP',
+'MFAP2',
+'MPZL1',
+'DFNA5',
+'MT2A',
+'MAGED2',
+'ITGA6',
+'FSTL1',
+'TNFRSF12A',
+'IL32',
+'COPB2',
+'PTK7',
+'OCIAD2',
+'TAX1BP3',
+'SEC13',
+'SERPINH1',
+'TPM4',
+'MYH9',
+'ANXA8L1',
+'PLOD2',
+'GALNT2',
+'LEPREL1',
+'MAGED1',
+'SLC38A5',
+'FSTL3',
+'CD99',
+'F3',
+'PSAP',
+'NMRK1',
+'FKBP9',
+'DSG2',
+'ECM1',
+'HTRA1',
+'SERINC1',
+'CALU',
+'TPST1',
+'PLOD3',
+'IGFBP3',
+'FRMD6',
+'CXCL14',
+'SERPINE2',
+'RABAC1',
+'TMED9',
+'NAGK',
+'BMP1',
+'ESYT1',
+'STON2',
+'TAGLN',
+'GJA1'
+)
+
+pEMT.Marker <- GeneSetCollection(GeneSet(pEMT.Marker, setName = "pEMT.Marker"))
+
+pEMT.enrich <- enrichIt(obj = Epi, gene.sets = pEMT.Marker, groups = 1000, cores = 4)
+Epi <- Seurat::AddMetaData(Epi, pEMT.enrich)
+
+tmp <- Epi@meta.data %>%
+  rownames_to_column() %>% 
+#  filter (CancerType == "Basal") %>%
+  dplyr::select(c(rowname,orig.ident, Phase, HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION)) %>%
+  group_by(orig.ident) %>%
+  arrange(HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION,.by_group = T) %>% 
+#  mutate(Rank = dense_rank(pEMT.Marker)) %>%
+  mutate(Rank = ntile(HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION,10)) %>%
+  ungroup %>%
+  group_by(orig.ident, Phase, Rank) %>%
+  summarize(count = n()) %>%
+  ungroup %>%
+  group_by (orig.ident, Rank) %>%
+  mutate(perc. = round(prop.table(count)*100,2)) %>%
+  filter (Phase == "S" | Phase == "G2M") %>%
+  dplyr::select (orig.ident, Phase, Rank, perc.) %>%
+  pivot_wider(names_from = Phase, values_from = perc.) %>%
+  mutate(Cycline = sum(S,G2M, na.rm = T))
+
+pdf("20221010_scRNAseq_34921143/34921143_pEMT.cycline.pdf", width = 10, height = 10)
+print(ggscatter(tmp, x = "Rank", y = "Cycline", facet.by = "orig.ident", scales = "free", add = "reg.line", conf.int = T, cor.coef = T, cor.coeff.args = list(method = "spearman", label.x = 3, label.sep = "\n"), ylab = "%cycline") + 
+  scale_x_continuous(breaks = c(2,4,6,8,10)))
+dev.off()
+
+
+tmp <- Epi@meta.data %>%
+  rownames_to_column() %>% 
+#  filter (CancerType == "Basal") %>%
+  dplyr::select(c(rowname,orig.ident, Phase, pEMT.Marker)) %>%
+  group_by(orig.ident) %>%
+  arrange(pEMT.Marker,.by_group = T) %>% 
+#  mutate(Rank = dense_rank(pEMT.Marker)) %>%
+  mutate(Rank = ntile(pEMT.Marker,10)) %>%
+  ungroup %>%
+  group_by(orig.ident, Phase, Rank) %>%
+  summarize(count = n()) %>%
+  ungroup %>%
+  group_by (orig.ident, Rank) %>%
+  mutate(perc. = round(prop.table(count)*100,2)) %>%
+  filter (Phase == "S" | Phase == "G2M") %>%
+  dplyr::select (orig.ident, Phase, Rank, perc.) %>%
+  pivot_wider(names_from = Phase, values_from = perc.) %>%
+  mutate(Cycline = sum(S,G2M, na.rm = T))
+
+#ggboxplot(tmp, x = "orig.ident", y = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION")
+pdf("20221010_scRNAseq_34921143/34921143_pEMT.cycline.pdf", width = 10, height = 10)
+print(ggscatter(tmp, x = "Rank", y = "Cycline", facet.by = "orig.ident", scales = "free", add = "reg.line", conf.int = T, cor.coef = T, cor.coeff.args = list(method = "spearman", label.x = 3, label.sep = "\n"), ylab = "%cycline") + 
+  scale_x_continuous(breaks = c(2,4,6,8,10)))
+dev.off()
+
+
+tmp <- Epi@meta.data %>%
+  rownames_to_column() %>% 
+#  filter (CancerType == "Basal") %>%
+  dplyr::select(c(rowname,orig.ident, Phase, HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION)) %>%
+  group_by(orig.ident) %>%
+  arrange(HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION,.by_group = T) %>% 
+  mutate(Order = dense_rank(HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION)) %>%
+  mutate(Rank = (trunc(Order/20)+1))%>%
+#  mutate(Rank = ntile(HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION,10)) %>%
+  ungroup %>%
+  group_by(orig.ident, Phase, Rank) %>%
+  summarize(count = n()) %>%
+  ungroup %>%
+  group_by (orig.ident, Rank) %>%
+  mutate(perc. = round(prop.table(count)*100,2)) %>%
+  filter (Phase == "S" | Phase == "G2M") %>%
+  dplyr::select (orig.ident, Phase, Rank, perc.) %>%
+  pivot_wider(names_from = Phase, values_from = perc.) %>%
+  mutate(Cycline = sum(S,G2M, na.rm = T))
+
+pdf("20221010_scRNAseq_34921143/34921143_pEMT.cycline.trunc.pdf", width = 20, height = 20)
+print(ggscatter(tmp, x = "Rank", y = "Cycline", facet.by = "orig.ident", scales = "free", add = "reg.line", conf.int = T, cor.coef = T, cor.coeff.args = list(method = "spearman", label.x = 3, label.sep = "\n"), ylab = "%cycline"))
+dev.off()
+
+dim(tmp)
+dim(Epi)
+
+table(Epi$orig.ident)
+
+#comp <- list(c("G1", "S"), c("G1", "G2M"), c("S", "G2M"))
+#ggboxplot(Epi@meta.data, x= "Phase", y = "pEMT.Marker", fill = "Phase", palette = "jco", add = "jitter", outlier.shape = NA) +
+#  stat_compare_means(method = "kruskal.test") + 
+#  stat_compare_means(comparisons = comp, method = "wilcox.test") 
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
